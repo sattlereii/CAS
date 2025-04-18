@@ -1,3 +1,2 @@
-# CAS
+# přidala jsem data z excelu, je to še co máme
 
-nevím jestl itu je vše ale snad jo...zkusíme z tohoto poskládat něco :D
