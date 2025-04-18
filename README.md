@@ -1,2 +1,2 @@
-# přidala jsem data z excelu, je to še co máme
+# přidala jsem data z excelu, je to vše co máme
 
