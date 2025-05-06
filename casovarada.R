@@ -33,5 +33,3 @@ ggplot(data, aes(x = datum, y = trzba)) +
   geom_line(color = "darkorange", linewidth = 1) +
   labs(title = "Časová řada - hodnota 2", x = "Datum", y = "trzba") +
   theme_minimal()
-
-
