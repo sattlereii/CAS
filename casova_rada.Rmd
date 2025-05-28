@@ -1,0 +1,14 @@
+---
+title: 'CAS - Seminární práce'
+subtitle: 'Návštevnost plavecké haly ____'
+author: 'Eliška Junková, Matěj Sloup'
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Hello everynyan!
+
+``` {r}
+print("Hello World!")
+
+```
