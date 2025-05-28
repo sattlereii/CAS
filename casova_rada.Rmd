@@ -6,6 +6,9 @@ date: "`r Sys.Date()`"
 output: html_document
 ---
 
+# Úvod do práce
+Práce obsahuje základní analýzu návštevnosti a tržby plavecké haly, zahrnující analýzu trendu a extrapolace pokračování trendu.
+
 # Načtení dat
 
 <!-- Načtení knihoven-->
@@ -48,6 +51,7 @@ data <- data %>%
 ``` {r dataread-out, echo=FALSE}
 head(data)
 ```
+Formát datumu je ROK-MĚSÍC-DEN. Tržba je uvedena v CZK.
 
 # Vizualizace
 ``` {r basicvisual-libs, include=FALSE}
