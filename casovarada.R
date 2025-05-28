@@ -1,4 +1,4 @@
-data <- read.table("clipboard", header = FALSE, sep = "", fill = TRUE, dec = ",", stringsAsFactors = FALSE)
+data <- read.table("vystup-test.csv", header = FALSE, sep = ",", quote = "", fill = TRUE, dec = ",", stringsAsFactors = FALSE)
 
 library(dplyr)
 library(lubridate)
@@ -6,7 +6,7 @@ library(lubridate)
 
 data <- data %>%
   mutate(
-    datum = ymd(V1),
+    datum = dmy(V1),
     pocet_navstev = as.integer(V2),
     trzba = as.integer(gsub("[^0-9]", "", iconv(V3, "UTF-8", "ASCII", sub = "")))
   ) %>%
