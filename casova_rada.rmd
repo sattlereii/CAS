@@ -1,0 +1,178 @@
+---
+title: 'CAS - Seminární práce'
+subtitle: 'Návštevnost plavecké haly ____'
+author: 'Eliška Junková, Matěj Sloup'
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+``` {r libraries, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(TTR)
+library(forecast)
+library(ggplot2)
+```
+
+## 1. **Výběr dat a hlavní řady**
+- Data: Záznamy návštěvnosti a tržeb městského bazénu (denní data, dvě potenciálně závislé řady: `návštěvnost` a `tržba`)
+- Hlavní řada: **návštěvnost**
+- Vedlejší řada: tržba
+
+## 2. **Grafické zobrazení řady + stručný komentář**
+
+```{r data-read, include=FALSE}
+data <- read_csv("zaznamy.csv")
+colnames(data)
+```
+
+<!-- 
+Potenciální zlepšení:
+- Zabarvení grafu dle roku
+-->
+```{r basic-graph, echo=FALSE}
+data <- data %>%
+  mutate(
+    datum = as.Date(datum),
+    navstevnost = as.numeric(`návštěvnost`),
+    trzba = as.numeric(gsub("\\s", "", `tržba`))
+  )
+
+ggplot(data, aes(x = datum, y = `návštěvnost`)) +
+  geom_line() +
+  labs(title = "Denní návštěvnost bazénu", x = "Datum", y = "Návštěvnost")
+```
+
+*Komentář: Návštěvnost vykazuje zjevnou sezónnost (vyšší hodnoty v létě, víkendech, svátcích) a patrný dlouhodobý trend.*
+
+---
+
+## 3. **Dekompozice + identifikace trendu (vyhlazení)**
+
+<!-- Možná bych si pohrál s počtem dní na vyhlazení, ale jinak LGTM-->
+### a) Klouzavý průměr
+```{r moving-average}
+
+data_clean <- data %>%
+  filter(!is.na(navstevnost), navstevnost > 0)
+
+data_clean$ma7 <- SMA(data_clean$navstevnost, n = 7)
+ggplot(data_clean, aes(x = datum)) +
+  geom_line(aes(y = navstevnost), alpha = 0.5) +
+  geom_line(aes(y = ma7), color = "blue") +
+  labs(title = "Klouzavý průměr (7 dní)", y = "Návštěvnost")
+```
+
+### b) Exponenciální vyrovnání
+<!-- Ditto moving-average-->
+```{r exponetial-smooth}
+data_clean$ema7 <- EMA(data_clean$navstevnost, n = 7)
+ggplot(data_clean, aes(x = datum)) +
+  geom_line(aes(y = navstevnost), alpha = 0.5) +
+  geom_line(aes(y = ema7), color = "red") +
+  labs(title = "Exponenciální vyrovnání (7 dní)", y = "Návštěvnost")
+```
+
+*Komentář: Klouzavý průměr i EMA ukazují základní trend. V létě vrchol, v zimě pokles.*
+
+---
+
+## 4. **Optimální model pro samotnou řadu (trend + sezónnost)**
+
+```{r}
+
+# Nahradíme odstávkové dny nulou, aby byla řada souvislá
+data_full <- data
+data_full$navstevnost[is.na(data_full$navstevnost)] <- 0
+
+ts_navs <- ts(data_full$navstevnost, frequency = 365, start = c(2023, 1)) # Neměla by frekvence bejt 7?
+decomp <- stl(ts_navs, s.window = "periodic")
+autoplot(decomp)
+```
+- Funkční zápis: např. `Návštěvnost = Trendová složka + Sezónní složka + Rezidua`
+- Fit modelu: lze použít např. polynomický/trigon. trend + dummy proměnné pro měsíc/den v týdnu
+
+---
+
+## 5. **SARIMA model**
+
+```{r}
+auto.arima(ts_navs, seasonal = TRUE)
+```
+- Zapište parametry nalezeného modelu (SARIMA(p,d,q)(P,D,Q)[s])
+- Komentujte vhodnost
+
+---
+
+## 6. **Závislosti na jiných řadách (kroskorelace + zpoždění)**
+
+```{r}
+data_ccf <- data %>% filter(!is.na(navstevnost), !is.na(trzba))
+ccf(data_ccf$navstevnost, data_ccf$trzba)
+```
+- Identifikujte, zda tržba ovlivňuje návštěvnost (nebo naopak) a s jakým zpožděním.
+
+---
+
+## 7. **Kombinovaný model (regrese + autokorelace)**
+
+```{r}
+k <- 1
+lm1 <- lm(navstevnost ~ lag(trzba, k), data = data_clean)
+acf(residuals(lm1))
+```
+- Kombinace: regrese hlavní řady na vedlejší + ARMA/SARIMA na zbytkovou autokorelaci
+
+---
+
+## 8. **Ověření předpokladů modelů (nezávislost residuí)**
+
+```{r}
+k <- 1
+data_lag <- data_clean %>%
+  mutate(trzba_lag = lag(trzba, k)) %>%
+  filter(!is.na(trzba_lag), !is.na(navstevnost))
+
+model <- lm(navstevnost ~ trzba_lag, data = data_lag)
+acf(residuals(model))
+```
+- U všech modelů ověřte ACF/PACF reziduí.
+
+---
+
+## 9. **Predikce 10 budoucích pozorování + intervaly spolehlivosti**
+
+```{r}
+#library(forecast)
+#library(ggplot2)
+
+ts_navs <- ts(data_clean$navstevnost, frequency = 7) # nebo 365, pokud máš souvislé roční data
+model <- auto.arima(ts_navs)
+forecasted <- forecast(model, h = 10)
+autoplot(forecasted)
+
+model <- lm(navstevnost ~ trzba, data = data_clean)
+future <- data.frame(trzba = c(1000, 1200, 1300, 1500, 1600, 1700, 1800, 2000, 2100, 2200)) # příklad
+pred <- predict(model, newdata = future)
+print(pred)
+
+```
+- Vykreslete predikci + intervaly
+
+---
+
+## 10. **Porovnání modelů a závěr**
+
+- Porovnejte modely pomocí AIC, BIC, RMSE, vizuálně i interpretačně
+- Komentujte, který model je nejvhodnější pro predikci a proč
+
+---
+
+## 11. **Závěrečné shrnutí**
+
+- Stručně shrňte, co jste zjistili o časové řadě, jaký model je optimální a jaké jsou předpoklady pro predikci.
+
+---
+
+*Poznámka: Všechny kroky doplňte vlastním komentářem k výsledkům a interpretaci.*
