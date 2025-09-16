@@ -13,6 +13,7 @@ library(readr)
 library(TTR)
 library(forecast)
 library(ggplot2)
+library(stats)
 ```
 
 ## 1. **Výběr dat a hlavní řady**
@@ -44,7 +45,9 @@ ggplot(data, aes(x = datum, y = `návštěvnost`)) +
   labs(title = "Denní návštěvnost bazénu", x = "Datum", y = "Návštěvnost")
 ```
 
-*Komentář: Návštěvnost vykazuje zjevnou sezónnost (vyšší hodnoty v létě, víkendech, svátcích) a patrný dlouhodobý trend.*
+<!-- *Komentář: Návštěvnost vykazuje zjevnou sezónnost (vyšší hodnoty v létě, víkendech, svátcích) a patrný dlouhodobý trend.* -->
+Řada vyobrazená na grafu reprezntuje návštevnost plavecké haly ______ (zapomněl jsem jméno, doplnit). Z grafu lze intuitivně vyčíst zjevná sezónnost dat a patrný dlouhodobý trend.
+Na řadu se budeme koukat z hlediska ročního, zajímat nás bude vývoj trendu za celý rok.
 
 ---
 
@@ -78,6 +81,33 @@ ggplot(data_clean, aes(x = datum)) +
 
 *Komentář: Klouzavý průměr i EMA ukazují základní trend. V létě vrchol, v zimě pokles.*
 
+```{r trend}
+cas <- 1:length(data_clean$navstevnost)
+
+linear <- lm(data_clean$navstevnost ~ cas)
+quadratic <- lm(data_clean$navstevnost ~ cas + I(cas^2))
+cubic <- lm(data_clean$navstevnost ~ cas + I(cas^2) + I(cas^3))
+tetral <- lm(data_clean$navstevnost ~ cas + I(cas^2) + I(cas^3) + I(cas^4))
+quintal <- lm(data_clean$navstevnost ~ cas + I(cas^2) + I(cas^3) + I(cas^4) + I(cas^5))
+
+
+plot(ts(data_clean$navstevnost))
+lines(cas, fitted(linear), col = 2)
+lines(cas, fitted(quadratic), col = 3)
+lines(cas, fitted(cubic), col = 4)
+lines(cas, fitted(tetral), col = 5)
+lines(cas, fitted(quintal), col = 6)
+
+BIC(linear)
+BIC(quadratic)
+BIC(cubic)
+BIC(tetral)
+BIC(quintal)
+```
+Základní odhad trendu pomocí funkcí.
+Funkce summary() ukazuje u lineárního trendu hodnotu 0.00125, tudíž by měl být statisticky významný. Toto by naznačovalo klesají návštěvnost v budoucnosti. Nicméně, je nutno vzít v potaz, že tato obsahuje i náhodnou a sezónní složku, která není nijak interpretovaná v lineární regresi.
+Podle hodnot kritéria BIC je nejvhodnější model polynomu stupně 5 (nejvýšší testovaný řád polynomu).
+
 ---
 
 ## 4. **Optimální model pro samotnou řadu (trend + sezónnost)**
@@ -88,12 +118,33 @@ ggplot(data_clean, aes(x = datum)) +
 data_full <- data
 data_full$navstevnost[is.na(data_full$navstevnost)] <- 0
 
-ts_navs <- ts(data_full$navstevnost, frequency = 7, start = c(2023, 1)) # Neměla by frekvence bejt 7?
+ts_navs <- ts(data_full$navstevnost, frequency = 365, start = c(2023, 1)) # Neměla by frekvence bejt 7?
 decomp <- stl(ts_navs, s.window = "periodic")
+summary(decomp)
 autoplot(decomp)
 ```
 - Funkční zápis: např. `Návštěvnost = Trendová složka + Sezónní složka + Rezidua`
 - Fit modelu: lze použít např. polynomický/trigon. trend + dummy proměnné pro měsíc/den v týdnu
+
+Funkce stl() (sezónní a trendový odhad pomocí LOESS) nám nádherně ukazuje sezónní složku. Trend se jeví jako rostoucí, což jde proti trendu určeném lineární regresí.
+
+```{r stlf}
+stlf_model <- stlf(ts_navs) # Model jako z stl
+stlf_model$SSE
+summary(stlf(ts_navs))
+autoplot(stlf_model)
+```
+
+Zde je vidět odhad z modelu metody LOESS. Modře zabarvená pole jsou intervaly spolehlivosti (sytá modrá - 85%, bledá modrá - 95%).
+
+```{r holt-winters}
+hw_model <- HoltWinters(ts_navs)
+plot(hw_model$fitted)
+autoplot(hw_model)
+hw_model$SSE
+```
+
+Holt-Wintersova metoda ukazuje konstantní trend a divnou sezónnost, ttudíž se dá předpokládat, že tohle je píčovina, a nikam nás to nedostane.
 
 ---
 
@@ -108,8 +159,9 @@ auto.arima(ts_navs, seasonal = TRUE)
   -->
 Parametry modelu SARIMA jsou (1,0,0)(0,1,0)[365].
 Toto znamená následující:
-- Hodnota autoregrese je 1.
+- Hodnota autoregrese je 1, což znamená že se využívá pouze hodnota předchozího kroku.
 - Řada není diferencována, tudíž již je stacionární.
+- Řadu je nutno sezónně diferencovat, tudíž máme další důkaz sezónnosti.
 
 SARIMA je vhodná, poněvadž:
 - V datech je vidět jasná sezónnost
@@ -133,8 +185,8 @@ Dle grafu lze vidět, že tržba je přímo korelována s návštěvností, pon�
 ## 7. **Kombinovaný model (regrese + autokorelace)**
 
 ```{r combined_model}
-k <- 1
-lm1 <- lm(navstevnost ~ lag(trzba, k), data = data_clean)
+optim_lag <- 0
+lm1 <- lm(navstevnost ~ lag(trzba, optim_lag), data = data_clean)
 acf(residuals(lm1))
 ```
 - Kombinace: regrese hlavní řady na vedlejší + ARMA/SARIMA na zbytkovou autokorelaci
