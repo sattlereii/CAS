@@ -1,2 +1,4 @@
 .venv
 cp_backup.rmd
+.RData
+.Rhistory

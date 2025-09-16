@@ -128,19 +128,9 @@ autoplot(decomp)
 
 Funkce stl() (sezónní a trendový odhad pomocí LOESS) nám nádherně ukazuje sezónní složku. Trend se jeví jako rostoucí, což jde proti trendu určeném lineární regresí.
 
-```{r stlf}
-stlf_model <- stlf(ts_navs) # Model jako z stl
-stlf_model$SSE
-summary(stlf(ts_navs))
-autoplot(stlf_model)
-```
-
-Zde je vidět odhad z modelu metody LOESS. Modře zabarvená pole jsou intervaly spolehlivosti (sytá modrá - 85%, bledá modrá - 95%).
-
 ```{r holt-winters}
 hw_model <- HoltWinters(ts_navs)
 plot(hw_model$fitted)
-autoplot(hw_model)
 hw_model$SSE
 ```
 
@@ -210,7 +200,7 @@ acf(residuals(model))
 
 ## 9. **Predikce 10 budoucích pozorování + intervaly spolehlivosti**
 
-```{r predictions}
+```{r predictions-sarima}
 #library(forecast)
 #library(ggplot2)
 
@@ -225,6 +215,15 @@ pred <- predict(model, newdata = future)
 print(pred)
 
 ```
+
+```{r stlf}
+stlf_model <- stlf(ts_navs) # Model jako z stl
+stlf_model$SSE
+summary(stlf(ts_navs))
+autoplot(stlf_model)
+```
+
+Zde je vidět odhad z modelu metody LOESS. Modře zabarvená pole jsou intervaly spolehlivosti (sytá modrá - 85%, bledá modrá - 95%).
 - Vykreslete predikci + intervaly
 
 ---
