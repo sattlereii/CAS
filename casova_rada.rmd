@@ -14,6 +14,8 @@ library(TTR)
 library(forecast)
 library(ggplot2)
 library(stats)
+library(dynlm)
+library(TSA)
 ```
 
 ## 1. **Výběr dat a hlavní řady**
@@ -90,6 +92,8 @@ cubic <- lm(data_clean$navstevnost ~ cas + I(cas^2) + I(cas^3))
 tetral <- lm(data_clean$navstevnost ~ cas + I(cas^2) + I(cas^3) + I(cas^4))
 quintal <- lm(data_clean$navstevnost ~ cas + I(cas^2) + I(cas^3) + I(cas^4) + I(cas^5))
 
+summary(quintal)$r.squared
+summary(linear)$r.squared
 
 plot(ts(data_clean$navstevnost))
 lines(cas, fitted(linear), col = 2)
@@ -105,15 +109,15 @@ BIC(tetral)
 BIC(quintal)
 ```
 Základní odhad trendu pomocí funkcí.
-Funkce summary() ukazuje u lineárního trendu hodnotu 0.00125, tudíž by měl být statisticky významný. Toto by naznačovalo klesají návštěvnost v budoucnosti. Nicméně, je nutno vzít v potaz, že tato obsahuje i náhodnou a sezónní složku, která není nijak interpretovaná v lineární regresi.
+Funkce summary() ukazuje u lineárního trendu hodnotu 0.00125, tudíž by měl být statisticky významný. Toto by naznačovalo klesají návštěvnost v budoucnosti. Nicméně, je nutno vzít v potaz, že tato obsahuje i náhodnou a sezónní složku, která není nijak interpretovaná v lineární regresi. Toto jde taky vidět v neuspokojivém skóre r.squared.
 Podle hodnot kritéria BIC je nejvhodnější model polynomu stupně 5 (nejvýšší testovaný řád polynomu).
 
 ---
 
 ## 4. **Optimální model pro samotnou řadu (trend + sezónnost)**
 
+### Pomocí Loess
 ```{r optimal_model}
-
 # Nahradíme odstávkové dny nulou, aby byla řada souvislá
 data_full <- data
 data_full$navstevnost[is.na(data_full$navstevnost)] <- 0
@@ -128,20 +132,34 @@ autoplot(decomp)
 
 Funkce stl() (sezónní a trendový odhad pomocí LOESS) nám nádherně ukazuje sezónní složku. Trend se jeví jako rostoucí, což jde proti trendu určeném lineární regresí.
 
+### Pomocí Holt-Winterse
 ```{r holt-winters}
 hw_model <- HoltWinters(ts_navs)
-plot(hw_model$fitted)
+
+plot(hw_model)
 hw_model$SSE
+summary(hw_model)
 ```
 
 Holt-Wintersova metoda ukazuje konstantní trend a divnou sezónnost, ttudíž se dá předpokládat, že tohle je píčovina, a nikam nás to nedostane.
+
+### Pomocí dynamické lineární regrese
+
+``` {r dynamic_lm}
+dlm_model <- dynlm(ts_navs ~ trend(ts_navs) + season(ts_navs))
+plot.ts(ts.intersect(ts_navs, dlm_model$fitted.values))
+```
 
 ---
 
 ## 5. **SARIMA model**
 
 ```{r sarima}
-auto.arima(ts_navs, seasonal = TRUE)
+sarima_best <- auto.arima(ts_navs, seasonal = TRUE)
+sarima_best
+
+sarima_BIC <- auto.arima(ts_navs, seasonal = TRUE, ic = "bic")
+
 ```
 <!--
 - Zapište parametry nalezeného modelu (SARIMA(p,d,q)(P,D,Q)[s])
@@ -194,6 +212,20 @@ data_lag <- data_clean %>%
 model <- lm(navstevnost ~ trzba_lag, data = data_lag)
 acf(residuals(model))
 ```
+
+```{r models-pacf}
+par(mfrow = c(2, 1))
+acf(residuals(sarima_best), na.action = na.pass)
+pacf(residuals(sarima_best), na.action = na.pass)
+acf(residuals(hw_model), na.action = na.pass)
+pacf(residuals(hw_model), na.action = na.pass)
+acf(residuals(dlm_model), na.action = na.pass)
+pacf(residuals(dlm_model), na.action = na.pass)
+par(mfrow = c(1, 1))
+
+Box.test(residuals(sarima_best), lag = 1, type = "Ljung-Box")
+Box.test(residuals(hw_model), lag = 1, type = "Ljung-Box")
+```
 - U všech modelů ověřte ACF/PACF reziduí.
 
 ---
@@ -201,12 +233,10 @@ acf(residuals(model))
 ## 9. **Predikce 10 budoucích pozorování + intervaly spolehlivosti**
 
 ```{r predictions-sarima}
-#library(forecast)
-#library(ggplot2)
 
 ts_navs <- ts(data_full$navstevnost, frequency = 365) # nebo 365, pokud máš souvislé roční data
-model <- auto.arima(ts_navs, seasonal = TRUE)
-forecasted <- forecast(model, h = 10)
+#model <- auto.arima(ts_navs, seasonal = TRUE)
+forecasted <- forecast(sarima_best, h = 10)
 autoplot(forecasted)
 
 model <- lm(navstevnost ~ trzba, data = data_clean)
@@ -214,6 +244,11 @@ future <- data.frame(trzba = c(1000, 1200, 1300, 1500, 1600, 1700, 1800, 2000, 2
 pred <- predict(model, newdata = future)
 print(pred)
 
+fc_hw <- forecast(hw_model, h = 10)
+autoplot(fc_hw)
+
+fc_dlm <- forecast(dlm_model$fitted.values, h = 10)
+autoplot(fc_dlm)
 ```
 
 ```{r stlf}
