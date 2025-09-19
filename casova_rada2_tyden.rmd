@@ -9,7 +9,6 @@ output: html_document
 <!-- 
 ##############################
 TECHNICKÁ PŘÍPRAVA 
-(Vlastní sekce, protože mne sere spouštění všeho potom co vypnu vim)
 -->
 
 <!--
@@ -17,7 +16,8 @@ Příprava prostředí
 - Obsahuje všechny proměnné (mimo data) použité ve vícero částech
 -->
 ``` {r environment, include=FALSE}
-SEASON_LEN = 365 # Délka sezóny, analyzujeme roční data
+#SEASON_LEN = 365 # Délka sezóny, analyzujeme roční data
+SEASON_LEN = 7
 ```
 <!--
 Knihovny
@@ -48,7 +48,6 @@ data <- data %>%
     #trzba = as.numeric(gsub("\\s", "", `tržba`))
   )
 
-data_omitted <- data %>% filter(!is.na(navstevnost), navstevnost > 0)
 data_zeroed <- data
 data_zeroed$navstevnost[is.na(data_zeroed$navstevnost)] <- 0
 data_zeroed$trzba[is.na(data_zeroed$trzba)] <- 0
@@ -58,12 +57,10 @@ data_zeroed$trzba[is.na(data_zeroed$trzba)] <- 0
 Časové řady
 -->
 ``` {r time-series, include = FALSE}
-ts_navs_full <- ts(data$navstevnost, frequency = SEASON_LEN, start = c(2023, 1))
-ts_navs_omit <- ts(data_omitted$navstevnost, frequency = SEASON_LEN, start = c(2023, 1))
-ts_navs_zero <- ts(data_zeroed$navstevnost, frequency = SEASON_LEN, start = c(2023, 1))
+ts_navs_full <- ts(data$navstevnost, frequency = SEASON_LEN, start = c(2023, 1, 1))
+ts_navs_zero <- ts(data_zeroed$navstevnost, frequency = SEASON_LEN, start = c(2023, 1, 1))
 
 ts_trzb_full <- ts(data$trzba, frequency = SEASON_LEN, start = c(2023, 1))
-ts_trzb_omit <- ts(data_omitted$trzba, frequency = SEASON_LEN, start = c(2023, 1))
 ts_trzb_zero <- ts(data_zeroed$trzba, frequency = SEASON_LEN, start = c(2023, 1))
 ```
 
@@ -90,7 +87,7 @@ ggplot(data, aes(x = datum, y = trzba)) +
   labs(title = "Denní tržba bazénu", x = "Datum", y = "Tržba")
 ```
 
-I když tento fakt není moc viditelný, řada obsahuje nulové a prázdné hodnoty. Tyto hodnoty jsou způsobeny dny, kdy bazén byl uzavřen/vyhrazen pro nějaké akce a odstávky systému, v tomto pořadí.
+I když tento fakt není moc viditelný, řada obsahuje nulové a prázdné hodnoty. Tyto hodnoty jsou způsobeny dny, kdy bazén byl uzavřen/vyhrazen pro nějaké akce a odstávky systému, v tomto pořadí. Pro naše účely v některých případech budou chybějící hodnoty nahrazeny nulami.
 Data ukazují jasnou sezónnost, konstantně vypadající trend.
 
 ---
@@ -109,15 +106,25 @@ maverages$r30 <- rollmean(ts_navs_full, k = 30, fill = NA)
 #TODO: Rozdělit na vlastní grafy, udělat trojgraf
 ggplot(data = maverages, aes(x = dates)) +
   geom_line(aes(y = x), alpha = 0.5) +
-  geom_line(aes(y = r14), color = "blue", show.legend = TRUE) +
   geom_line(aes(y = r7), color = "red", show.legend = TRUE) +
+  labs(title = "Klouzavý průměr", y = "Návštěvnost")
+
+ggplot(data = maverages, aes(x = dates)) +
+  geom_line(aes(y = x), alpha = 0.5) +
+  geom_line(aes(y = r14), color = "blue", show.legend = TRUE) +
+  labs(title = "Klouzavý průměr", y = "Návštěvnost")
+
+ggplot(data = maverages, aes(x = dates)) +
+  geom_line(aes(y = x), alpha = 0.5) +
   geom_line(aes(y = r30), color = "yellow", show.legend = TRUE) +
   labs(title = "Klouzavý průměr", y = "Návštěvnost")
 
 models$ma <- maverages$r30
 ```
 
-Třicetidenní klouzavý průměr hezky imituje trend křivky. Sedmidenní a čtrnáctidenní vyhlazení není tak reprezentativní.
+Sedmidenní klouzavý průměr neposkytuje dostatečné vyhlazení, zatímco třicetidenní poskytuje moc agresivní vyhlazení. Čtrnáctidenní vyhlazení vypadá jako optimum.
+Nulové hodnoty trochu skreslují výsledek. V datech lze vidět cykličnost v časovém rámci roku. 
+
 
 ### Exponenciální vyrovnání
 
@@ -125,6 +132,10 @@ Třicetidenní klouzavý průměr hezky imituje trend křivky. Sedmidenní a čt
 expo_smooth_EMA <- EMA(ts_navs_zero, n=30)
 
 expo_smooth_HW <- HoltWinters(ts_navs_zero)
+summary(expo_smooth_HW)
+expo_smooth_HW$alpha
+expo_smooth_HW$beta
+expo_smooth_HW$gamma
 
 par(mfrow = c(2, 1))
 plot(expo_smooth_EMA, type = "l")
@@ -135,9 +146,47 @@ models$ema <- expo_smooth_EMA
 models$hw <- expo_smooth_HW$fitted[, "xhat"]
 ```
 
-Exponenciální vyrovnání je celkem kolísavé, exponenciální vyrovnání pomocí Holt-Wintersovy metody chilluje na +- konstatní hodnotě.
+Exponenciální vyrovnání  pomocí funkce EMA je celkem kolísavé, exponenciální vyrovnání pomocí Holt-Wintersovy metody udává +- konstantní trend.
+Parametry Holt-Wintersovy metody jsou:
+- alfa: 0.4542636
+- beta: 0.00663288
+- gamma: 0.1905096
+
+Tudíž, řada obsahuje sezónnost a model přisuzuje váhu minulým průměrným hodnotám trendu.
 
 ## 3. Optimální modely pro řadu
+
+### Funkční zápis
+```{r functional-trend}
+cas <- 1:length(data_zeroed$navstevnost)
+
+linear <- lm(data_zeroed$navstevnost ~ cas)
+quadratic <- lm(data_zeroed$navstevnost ~ cas + I(cas^2))
+cubic <- lm(data_zeroed$navstevnost ~ cas + I(cas^2) + I(cas^3))
+tetral <- lm(data_zeroed$navstevnost ~ cas + I(cas^2) + I(cas^3) + I(cas^4))
+quintal <- lm(data_zeroed$navstevnost ~ cas + I(cas^2) + I(cas^3) + I(cas^4) + I(cas^5))
+
+summary(quintal)$r.squared
+summary(linear)$r.squared
+
+plot(ts(data_zeroed$navstevnost))
+
+lines(cas, fitted(linear), col = 2)
+lines(cas, fitted(quadratic), col = 3)
+lines(cas, fitted(cubic), col = 4)
+lines(cas, fitted(tetral), col = 5)
+lines(cas, fitted(quintal), col = 6)
+
+BIC(linear)
+BIC(quadratic)
+BIC(cubic)
+BIC(tetral)
+BIC(quintal)
+```
+
+Nejlépe vypadající trend je u polynomu stupně 5, nicméně kritérium r^2 napovídá, že tato křivka nevysvětluje velkou část residuí.
+Je možné že vyšší polynomiální stupeň bude křivku vystihovat ještě lépe, nicméně nárust v přesnosti bude logaritmický. Stupeň 5 postačí.
+Pozoruhodné ještě je, že lineární model je lepší než kvardratický a kubický.
 
 ### Loess model
 
@@ -147,7 +196,7 @@ summary(loess)
 autoplot(loess)
 ```
 
-<!-- TODO: Add description -->
+Loess potvrzuje, že data obsahují sezónnost, a že trend je cyklický. Jsou vidět silná rezidua.
 
 ## 4. Sarima model
 
@@ -166,7 +215,15 @@ par(mfrow = c(1, 1))
 models$sarima <- sarima_AIC$fitted
 ```
 
-Volba podle AIC i BIC nám automaticky zvolí SARIMA model (1,0,0)(0,1,0)[365]. Hurá!
+Volba podle AIC i BIC nám automaticky zvolí SARIMA model (1,0,0)(0,1,0)[365].
+Toto znamená následující:
+- Hodnota autoregrese je 1, což znamená že se využívá pouze hodnota předchozího kroku.
+- Řada není diferencována, tudíž již je stacionární.
+- Řadu je nutno sezónně diferencovat, tudíž máme další důkaz sezónnosti.
+
+SARIMA je vhodná, poněvadž:
+- V datech je vidět jasná sezónnost
+- Je vidět jasný trend
 
 ## 5. ** Závislosti na jiných řadách, dynamické modely **
 
@@ -174,7 +231,7 @@ Volba podle AIC i BIC nám automaticky zvolí SARIMA model (1,0,0)(0,1,0)[365]. 
 ccf(data_zeroed$navstevnost, data_zeroed$trzba)
 ```
 
-Vzhledem k tomu že kroskorelační funkce nabývá hodnoty 1 v lagu 0, znamená že mezi návštěvností a tržbou bude nějaká korelace. Jak šokující.
+Vzhledem k tomu že kroskorelační funkce nabývá hodnoty 1 v lagu 0, znamená že mezi návštěvností a tržbou bude nějaká korelace. Selský rozum by nám asi napověděl, že by tam mohla být pozitivní lineární závislost.
 
 ``` {r dynamic-lm}
 dyn_lm <- dynlm(ts_navs_zero ~ trend(ts_navs_zero) + season(ts_navs_zero))
@@ -183,45 +240,40 @@ acf(dyn_lm$residuals)
 dyn_lm1 <- dynlm(ts_navs_zero ~ trend(ts_navs_zero) + season(ts_navs_zero) + L(ts_navs_zero, -1))
 acf(dyn_lm1$residuals)
 
-dyn_lm2 <- dynlm(ts_navs_zero ~ trend(ts_navs_zero) + season(ts_navs_zero) + L(ts_navs_zero, -1) + L(ts_navs_zero, -15))
+dyn_lm2 <- dynlm(ts_navs_zero ~ trend(ts_navs_zero) + season(ts_navs_zero) + L(ts_navs_zero, -1) + L(ts_navs_zero, -7))
 acf(dyn_lm2$residuals)
 
 
-dyn_lm2 <- dynlm(ts_navs_zero ~ trend(ts_navs_zero) + season(ts_navs_zero) + L(ts_navs_zero, -1) + L(ts_navs_zero, -15) + L(ts_navs_zero, 8) + L(ts_navs_zero, -5) + L(ts_navs_zero, -28))
-acf(dyn_lm2$residuals)
-plot(dyn_lm2$fitted)
+dyn_lm3 <- dynlm(ts_navs_zero ~ trend(ts_navs_zero) + season(ts_navs_zero) + L(ts_navs_zero, -1) + L(ts_navs_zero, -7) + L(ts_navs_zero, 8))
+acf(dyn_lm3$residuals)
+plot(dyn_lm3$fitted)
 
-models$dlm <- dyn_lm2$fitted
+models$dlm <- dyn_lm3$fitted
 ```
-
-Well, je to šílený, ale to je ten model. Hodně experimentace s autokorelogramem.
 
 ## 6. **Analýza residuí**
 ``` {r i-am-doomed}
 acf(residuals(sarima_AIC), na.action = na.pass)
 acf(residuals(expo_smooth_HW), na.action = na.pass)
-acf(residuals(dyn_lm2), na.action = na.pass)
+acf(residuals(dyn_lm3), na.action = na.pass)
 ```
+Residua mírně přesahují akceptovatelný interval, nicméně nevím co s tím udělat, a doufám ve známku 3 a nic lepšího, takže budu doufat že zbytek bude stačit, protože fakt nemám čas to řešit
 
-Residua u všech modelů jsou v uspokojivých intervalech. Pro mne je uspokojivý interval cokoliv. Absolutně mne to nezajímá a může to klidně jít do prdele, pro mne za mne.
-
-Připoměň mi ať udělám box testy. Do piči.
 
 ## 7. **Predikce**
 
-``` {r predict-my-cock-in-your-mouth}
+``` {r predict}
 forecast_sarima <- forecast(sarima_AIC, h = 10)
 forecast_hw <- forecast(expo_smooth_HW, h = 10)
+
 
 autoplot(forecast_sarima)
 autoplot(forecast_hw)
 ```
 
-Sarima vypadá racionálně, Holt-Winters je celkem fucked up.
+Sarima předpovídá celkem smysluplně. Holt-Winters model vypadá relativně problémově.
 
 ## 8. ** Porovnání modelů a závěr **
 
 Sarima je jediný model který se reálně povedl, zbytek jsem nějakým způsobem posral.
-Vypadá to že se návštevnost bude mírně zvedat během zimy. Wow.
-
-Jdu spát. Dobrou noc.
+Vypadá to že se návštevnost bude mírně zvedat během zimy. 
