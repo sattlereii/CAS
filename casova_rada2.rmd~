@@ -1,0 +1,112 @@
+---
+title: 'CAS - Seminární práce'
+subtitle: 'Návštevnost plavecké haly ____'
+author: 'Eliška Junková, Matěj Sloup'
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+<!-- 
+##############################
+TECHNICKÁ PŘÍPRAVA 
+(Vlastní sekce, protože mne sere spouštění všeho potom co vypnu vim)
+-->
+
+<!--
+Příprava prostředí
+- Obsahuje všechny proměnné (mimo data) použité ve vícero částech
+-->
+``` {r environment, include=FALSE}
+SEASON_LEN = 365 # Délka sezóny, analyzujeme roční data
+```
+<!--
+Knihovny
+-->
+``` {r libraries, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(TTR)
+library(forecast)
+library(ggplot2)
+library(stats)
+library(dynlm)
+library(TSA)
+```
+
+<!--
+Čtení a příprava dat
+-->
+``` {r data-read, include=FALSE}
+data <- read_csv("zaznamy.csv")
+
+data <- data %>%
+  mutate(
+    datum = as.Date(datum),
+    navstevnost = as.numeric(`návštěvnost`),
+    trzba = as.numeric(`tržba`)
+    #trzba = as.numeric(gsub("\\s", "", `tržba`))
+  )
+
+data_omitted <- data %>% filter(!is.na(navstevnost), navstevnost > 0)
+data_zeroed <- data
+data_zeroed$navstevnost[is.na(data_zeroed$navstevnost)] <- 0
+```
+
+<!--
+Časové řady
+-->
+``` {r time-series, include = FALSE}
+ts_navs_full <- ts(data$navstevnost, frequency = SEASON_LEN, start = c(2023, 1))
+ts_navs_omit <- ts(data_omitted$navstevnost, frequency = SEASON_LEN, start = c(2023, 1))
+ts_navs_zero <- ts(data_zeroed$navstevnost, frequency = SEASON_LEN, start = c(2023, 1))
+
+ts_trzb_full <- ts(data$trzba, frequency = SEASON_LEN, start = c(2023, 1))
+ts_trzb_omit <- ts(data_omitted$trzba, frequency = SEASON_LEN, start = c(2023, 1))
+ts_trzb_zero <- ts(data_zeroed$trzba, frequency = SEASON_LEN, start = c(2023, 1))
+```
+
+``` {r models-storage, include = FALSE}
+models <- data.frame()
+```
+
+<!--
+#############
+ANALÝZA ČASOVÉ ŘADY
+-->
+
+## 1. **Grafické zobrazení řady, komentář dat**
+Analyzovaná data obsahují návštevnost a tržby městského bazénu. Řada obsahuje denní data za roky 2023 a 2024. Data budeme zkoumat v časovém rámci roku.
+Naší hlavní řadou bude návštěvnost, vedlejší řadou bude tržba.
+
+```{r data_show, echo = FALSE}
+ggplot(data, aes(x = datum, y = návštěvnost)) +
+  geom_line() +
+  labs(title = "Denní návštevnost bazénu", x = "Datum", y = "Návštevnost")
+
+ggplot(data, aes(x = datum, y = trzba)) +
+  geom_line() +
+  labs(title = "Denní tržba bazénu", x = "Datum", y = "Tržba")
+```
+
+I když tento fakt není moc viditelný, řada obsahuje nulové a prázdné hodnoty. Tyto hodnoty jsou způsobeny dny, kdy bazén byl uzavřen/vyhrazen pro nějaké akce a odstávky systému, v tomto pořadí.
+Data ukazují jasnou sezónnost, konstantně vypadající trend.
+
+---
+
+## 2. Dekompozice a idenfikace trendu pomocí vyhlazení řady
+
+``` {r moving-average, echo = FALSE}
+#SMOOTH_RANGE <- 14 # Proměnná udávající velikost klouzavého průměru
+
+maverages <- data.frame(dates = data$datum, x = data$navstevnost)
+
+#maverages$r14 <- SMA(maverages$x, n = 14)
+maverages$r14 <- rollmean()
+ggplot(data = maverages, aes(x = datum)) +
+  geom_line(aes(y = x), alpha = 0.5) +
+  geom_line(aes(y = r14), color = "blue") +
+  labs(title = "Klouzavý průměr", y = "Návštěvnost")
+
+models$ma <- maverages$r14
+```
