@@ -16,8 +16,8 @@ Příprava prostředí
 - Obsahuje všechny proměnné (mimo data) použité ve vícero částech
 -->
 ``` {r environment, include=FALSE}
-#SEASON_LEN = 365 # Délka sezóny, analyzujeme roční data
-SEASON_LEN = 7
+SEASON_LEN = 365 # Délka sezóny, analyzujeme roční data
+#SEASON_LEN = 7
 ```
 <!--
 Knihovny
@@ -123,7 +123,7 @@ models$ma <- maverages$r30
 ```
 
 Sedmidenní klouzavý průměr neposkytuje dostatečné vyhlazení, zatímco třicetidenní poskytuje moc agresivní vyhlazení. Čtrnáctidenní vyhlazení vypadá jako optimum.
-Nulové hodnoty trochu skreslují výsledek. V datech lze vidět cykličnost. 
+Nulové hodnoty trochu skreslují výsledek. V datech lze vidět sezónnost na úrovni roku. 
 
 
 ### Exponenciální vyrovnání
@@ -146,13 +146,13 @@ models$ema <- expo_smooth_EMA
 models$hw <- expo_smooth_HW$fitted[, "xhat"]
 ```
 
-Exponenciální vyrovnání  pomocí funkce EMA je celkem kolísavé, exponenciální vyrovnání pomocí Holt-Wintersovy metody udává +- konstantní trend.
+Exponenciální vyrovnání  pomocí funkce EMA je celkem kolísavé.
 Parametry Holt-Wintersovy metody jsou:
 - alfa: 0.3635206
 - beta: 0
 - gamma: 1
 
-Toto nám říká, že podle Holt-Wintersovy metody je trend konstatní, a řada obsahuje sezónnost.
+Toto nám říká, že podle Holt-Wintersovy metody je trend konstatní, a řada obsahuje sezónnost. Nulová beta značí konstantní trend, a gamma na hodnotě 1 značí silnou sezónnost.
 
 ## 3. Optimální modely pro řadu
 
@@ -186,6 +186,7 @@ BIC(quintal)
 
 Nejlépe vypadající trend je u polynomu stupně 5, nicméně kritérium r^2 napovídá, že tato křivka nevysvětluje velkou část residuí.
 Je možné že vyšší polynomiální stupeň bude křivku vystihovat ještě lépe, nicméně nárust v přesnosti bude logaritmický. Stupeň 5 postačí.
+Pozoruhodné ještě je, že kritéria BIC lineární model je lepší než kvadratický a kubický.
 
 ### Loess model
 
@@ -195,7 +196,7 @@ summary(loess)
 autoplot(loess)
 ```
 
-<!-- TODO: Add description -->
+Loess potvrzuje sezónnost, ale narozdíl od Holt-Wintersovy metody promítá kladný, nekonstantní trend.
 
 ## 4. Sarima model
 
@@ -274,5 +275,5 @@ Sarima předpovídá celkem smysluplně. Holt-Winters model vypadá relativně p
 
 ## 8. ** Porovnání modelů a závěr **
 
-Sarima je jediný model který se reálně povedl, zbytek jsem nějakým způsobem posral.
+Sarima je jediný model který se reálně povedl, zbytek modelů má silné chyby.
 Vypadá to že se návštevnost bude mírně zvedat během zimy. 
