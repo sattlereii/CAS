@@ -64,10 +64,6 @@ ts_trzb_full <- ts(data$trzba, frequency = SEASON_LEN, start = c(2023, 1))
 ts_trzb_zero <- ts(data_zeroed$trzba, frequency = SEASON_LEN, start = c(2023, 1))
 ```
 
-``` {r models-storage, include = FALSE}
-models <- data.frame(dates = data$datum, x = data$navstevnost)
-```
-
 <!--
 #############
 ANALÝZA ČASOVÉ ŘADY
@@ -119,7 +115,6 @@ ggplot(data = maverages, aes(x = dates)) +
   geom_line(aes(y = r30), color = "yellow", show.legend = TRUE) +
   labs(title = "Klouzavý průměr", y = "Návštěvnost")
 
-models$ma <- maverages$r30
 ```
 
 Sedmidenní klouzavý průměr neposkytuje dostatečné vyhlazení, zatímco třicetidenní poskytuje moc agresivní vyhlazení. Čtrnáctidenní vyhlazení vypadá jako optimum.
@@ -142,8 +137,6 @@ plot(expo_smooth_EMA, type = "l")
 plot(expo_smooth_HW$fitted[, "xhat"])
 par(mfrow = c(1, 1))
 
-models$ema <- expo_smooth_EMA
-models$hw <- expo_smooth_HW$fitted[, "xhat"]
 ```
 
 Exponenciální vyrovnání  pomocí funkce EMA je celkem kolísavé.
@@ -157,7 +150,7 @@ Toto nám říká, že podle Holt-Wintersovy metody je trend konstatní, a řada
 ## 3. Optimální modely pro řadu
 
 ### Funkční zápis
-```{r functional-trend}
+```{r functional-trend, echo = FALSE}
 cas <- 1:length(data_zeroed$navstevnost)
 
 linear <- lm(data_zeroed$navstevnost ~ cas)
@@ -190,7 +183,7 @@ Pozoruhodné ještě je, že kritéria BIC lineární model je lepší než kvad
 
 ### Loess model
 
-``` {r loess-model}
+``` {r loess-model, echo = FALSE}
 loess <- stl(ts_navs_zero, s.window = "periodic")
 summary(loess)
 autoplot(loess)
@@ -200,7 +193,7 @@ Loess potvrzuje sezónnost, ale narozdíl od Holt-Wintersovy metody promítá kl
 
 ## 4. Sarima model
 
-``` {r sarima}
+``` {r sarima, echo = FALSE}
 sarima_AIC <- auto.arima(ts_navs_full, seasonal = TRUE)
 sarima_BIC <- auto.arima(ts_navs_full, seasonal = TRUE, ic = "bic")
 
@@ -212,7 +205,6 @@ plot(sarima_AIC$fitted)
 plot(sarima_BIC$fitted)
 par(mfrow = c(1, 1))
 
-models$sarima <- sarima_AIC$fitted
 ```
 
 Volba podle AIC i BIC nám automaticky zvolí SARIMA model (1,0,0)(0,1,0)[365].
@@ -227,13 +219,13 @@ SARIMA je vhodná, poněvadž:
 
 ## 5. ** Závislosti na jiných řadách, dynamické modely **
 
-``` {r ccf}
+``` {r ccf, echo = FALSE}
 ccf(data_zeroed$navstevnost, data_zeroed$trzba)
 ```
 
 Vzhledem k tomu že kroskorelační funkce nabývá hodnoty 1 v lagu 0, znamená že mezi návštěvností a tržbou bude nějaká korelace. Selský rozum by nám asi napověděl, že by tam mohla být pozitivní lineární závislost.
 
-``` {r dynamic-lm}
+``` {r dynamic-lm, echo = FALSE}
 dyn_lm <- dynlm(ts_navs_zero ~ trend(ts_navs_zero) + season(ts_navs_zero))
 acf(dyn_lm$residuals)
 
@@ -248,11 +240,10 @@ dyn_lm3 <- dynlm(ts_navs_zero ~ trend(ts_navs_zero) + season(ts_navs_zero) + L(t
 acf(dyn_lm3$residuals)
 plot(dyn_lm3$fitted)
 
-models$dlm <- dyn_lm3$fitted
 ```
 
 ## 6. **Analýza residuí**
-``` {r i-am-doomed}
+``` {r i-am-doomed, echo = FALSE}
 acf(residuals(sarima_AIC), na.action = na.pass)
 acf(residuals(expo_smooth_HW), na.action = na.pass)
 acf(residuals(dyn_lm3), na.action = na.pass)
@@ -262,7 +253,7 @@ Residua mírně přesahují akceptovatelný interval, nicméně nevím co s tím
 
 ## 7. **Predikce**
 
-``` {r predict}
+``` {r predict, echo = FALSE}
 forecast_sarima <- forecast(sarima_AIC, h = 10)
 forecast_hw <- forecast(expo_smooth_HW, h = 10)
 
