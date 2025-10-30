@@ -2,3 +2,6 @@
 cp_backup.rmd
 .RData
 .Rhistory
+autocorrelation_analysis_files
+experimental_zone.rmd
+packages.txt
