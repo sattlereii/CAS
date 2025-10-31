@@ -288,24 +288,54 @@ acf(residuals(lm_navs_trzba))
 
 Jak je vidět z ACF grafu, residua jsou stále silně autokorelovaná. Lineární model sám o sobě nestačí, protože ignoruje časovou strukturu dat (trend, sezónnost).
 
+### Lineární regrese s týdenní sezónností
+
+ACF graf pro lineární regresi ukazuje silnou autokorelaci každých 7 lagů, což naznačuje přítomnost týdenní sezónnosti. Tento problém se pokusíme vyřešit přidáním dne v týdnu jako prediktoru do modelu. Pro tento účel si vytvoříme novou dočasnou datovou sadu.
+
+```{r linear-regression-weekly-fix, echo=FALSE}
+data_weekly <- data_zeroed %>%
+  mutate(den_v_tydnu = wday(datum, label = TRUE, week_start = 1))
+lm_weekly <- lm(navstevnost ~ trzba + den_v_tydnu, data = data_weekly)
+summary(lm_weekly)
+acf(residuals(lm_weekly))
+```
+
+Přidáním dne v týdnu jako prediktoru do lineárního modelu se nám podařilo výrazně snížit autokorelaci v residuích, zejména na lagu 7 a jeho násobcích. I přes toto zlepšení je autokorelace stále přítomna, což naznačuje, že i tento vylepšený model stále plně nevystihuje časovou strukturu dat, ale je zjevně lepším modelem, než předchozí.
+
 ### ARIMAX model
 
 Nyní zkusíme model ARIMAX, který kombinuje ARIMA model s externími regresory. Jako externí regresor použijeme `trzba`.
 
 ```{r arimax-model, echo=FALSE}
 xreg <- data_zeroed$trzba
-arimax_model <- auto.arima(ts_navs_zero, xreg = xreg, seasonal = TRUE)
-summary(arimax_model)
-acf(residuals(arimax_model))
+#arimax_model <- auto.arima(ts_navs_zero, xreg = xreg, seasonal = TRUE)
+#summary(arimax_model)
+#acf(residuals(arimax_model))
 ```
 
 Z ACF grafu residuí modelu ARIMAX je vidět, že autokorelace byla z velké části odstraněna. Tento model je tedy vhodnější pro analýzu.
 
-Model je `ARIMA(2,1,1)(0,1,0)[365]` s `drift`. To znamená:
+Model je `ARIMA(2,1,3)(0,1,0)[365]` s `drift`. To znamená:
 -   AR(2): závislost na dvou předchozích hodnotách.
 -   I(1): jedno diferencování.
--   MA(1): závislost na chybě z předchozího kroku.
+-   MA(3): závislost na chybě z předchozích tří kroků.
 -   Sezónní část (0,1,0)[365] značí sezónní diferencování.
 -   Model také zahrnuje `drift` a externí regresor (`trzba`).
 
 Tento model lépe zachycuje dynamiku časové řady.
+
+### Opravený dynamický lineární model (dynlm)
+
+Jak bylo zmíněno, předchozí dynamické modely obsahovaly chybu v podobě záporných lagů. Nyní vytvoříme opravený model, který bude používat pouze minulé hodnoty (kladné lagy 1 a 7) k vysvětlení současné hodnoty.
+
+```{r dynlm-fix, echo=FALSE}
+# Původní dynlm modely používaly záporné lagy, což vedlo k závislosti na budoucích hodnotách.
+# Zde je opravený model, který používá pouze minulé hodnoty (kladné lagy)
+# a explicitně přidává lag 7 pro týdenní sezónnost.
+dyn_lm_corrected <- dynlm(ts_navs_zero ~ trend(ts_navs_zero) + season(ts_navs_zero) + L(ts_navs_zero, 1) + L(ts_navs_zero, 7))
+summary(dyn_lm_corrected)
+acf(residuals(dyn_lm_corrected))
+```
+
+Z ACF grafu residuí opraveného `dynlm` modelu je vidět, že autokorelace byla výrazně potlačena, zejména na týdenních intervalech. To potvrzuje, že správné použití lagů a zahrnutí 7-denního lagu bylo klíčové.
+
