@@ -268,3 +268,39 @@ Sarima předpovídá celkem smysluplně. Holt-Winters model vypadá relativně p
 
 Sarima je jediný model který se reálně povedl, zbytek modelů má silné chyby.
 Vypadá to že se návštevnost bude mírně zvedat během zimy. 
+
+
+
+## 9. Modelace závislosti na jiné řadě (návštěvnost × tržba)
+
+Na základě předchozí analýzy křížové korelace (funkce CCF) je patrné, že
+nejvyšší hodnota korelace je v ladu 0. To znamená, že mezi denní
+návštěvností a tržbou existuje **silná současná závislost** – tržba reaguje
+okamžitě na počet návštěvníků. Tento výsledek odpovídá logickému očekávání,
+protože výše tržby přímo souvisí s počtem prodaných vstupenek.
+
+Pro ověření lze použít **regresní model s exogenní proměnnou**, tedy model
+typu ARIMAX, kde je vysvětlovanou proměnnou tržba a vysvětlující proměnnou
+návštěvnost. Tím se testuje, zda návštěvnost zlepšuje predikci tržby oproti
+modelu, který využívá pouze autoregresní strukturu.
+
+
+```{r}
+# ARIMAX model
+arimax_model <- auto.arima(ts(data_zeroed$trzba),
+                           xreg = data_zeroed$navstevnost,
+                           seasonal = TRUE)
+summary(arimax_model)
+checkresiduals(arimax_model)
+
+lm_trzba <- lm(trzba ~ navstevnost, data = data_zeroed)
+summary(lm_trzba)
+```
+Na základě výsledků křížové korelace mezi návštěvností a tržbou byla potvrzena silná pozitivní lineární závislost obou časových řad. Maximální hodnota korelace se nachází při zpoždění 0, což znamená, že změny v počtu návštěvníků se okamžitě promítají do výše tržby.
+
+Pro přesnější modelaci byl použit model ARIMAX, který kombinuje autoregresní část (ARIMA) s exogenní proměnnou – návštěvností. Tento přístup umožňuje zachytit nejen sezónní strukturu tržeb, ale i jejich přímou závislost na počtu návštěvníků.
+Hodnota R² = 0.9812 ukazuje, že model vysvětluje více než 98 % variability tržeb.
+
+Koeficient u proměnné návštěvnost (84.1) znamená, že každý další návštěvník přinese průměrně přibližně 84 Kč tržby.
+
+Ljung–Box test (Q = 60.3, p < 0.001) ukazuje, že v reziduích zůstává ještě mírná autokorelace, ale v rámci praxe je model považovatelný za dostatečně kvalitní.
