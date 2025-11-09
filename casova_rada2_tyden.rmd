@@ -1,0 +1,308 @@
+---
+title: 'CAS - Seminární práce'
+subtitle: 'Návštevnost plavecké haly ____'
+author: 'Eliška Junková, Matěj Sloup'
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+<!-- 
+##############################
+TECHNICKÁ PŘÍPRAVA 
+-->
+
+<!--
+Příprava prostředí
+- Obsahuje všechny proměnné (mimo data) použité ve vícero částech
+-->
+``` {r environment, include=FALSE}
+#SEASON_LEN = 365 # Délka sezóny, analyzujeme roční data
+SEASON_LEN = 7
+```
+<!--
+Knihovny
+-->
+``` {r libraries, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(TTR)
+library(forecast)
+library(ggplot2)
+library(stats)
+library(dynlm)
+library(TSA)
+```
+
+<!--
+Čtení a příprava dat
+-->
+``` {r data-read, include=FALSE}
+data <- read_csv("zaznamy.csv")
+
+data <- data %>%
+  mutate(
+    datum = as.Date(datum),
+    navstevnost = as.numeric(`návštěvnost`),
+    trzba = as.numeric(`tržba`)
+    #trzba = as.numeric(gsub("\\s", "", `tržba`))
+  )
+
+data_zeroed <- data
+data_zeroed$navstevnost[is.na(data_zeroed$navstevnost)] <- 0
+data_zeroed$trzba[is.na(data_zeroed$trzba)] <- 0
+```
+
+<!--
+Časové řady
+-->
+``` {r time-series, include = FALSE}
+ts_navs_full <- ts(data$navstevnost, frequency = SEASON_LEN, start = c(2023, 1))
+ts_navs_zero <- ts(data_zeroed$navstevnost, frequency = SEASON_LEN, start = c(2023, 1))
+
+ts_trzb_full <- ts(data$trzba, frequency = SEASON_LEN, start = c(2023, 1))
+ts_trzb_zero <- ts(data_zeroed$trzba, frequency = SEASON_LEN, start = c(2023, 1))
+```
+
+<!--
+#############
+ANALÝZA ČASOVÉ ŘADY
+-->
+
+## 1. **Grafické zobrazení řady, komentář dat**
+Analyzovaná data obsahují návštevnost a tržby městského bazénu. Řada obsahuje denní data za roky 2023 a 2024. Data budeme zkoumat v časovém rámci roku.
+Naší hlavní řadou bude návštěvnost, vedlejší řadou bude tržba.
+
+```{r data_show, echo = FALSE}
+ggplot(data, aes(x = datum, y = návštěvnost)) +
+  geom_line() +
+  labs(title = "Denní návštevnost bazénu", x = "Datum", y = "Návštevnost")
+
+ggplot(data, aes(x = datum, y = trzba)) +
+  geom_line() +
+  labs(title = "Denní tržba bazénu", x = "Datum", y = "Tržba")
+```
+
+I když tento fakt není moc viditelný, řada obsahuje nulové a prázdné hodnoty. Tyto hodnoty jsou způsobeny dny, kdy bazén byl uzavřen/vyhrazen pro nějaké akce a odstávky systému, v tomto pořadí. Pro naše účely v některých případech budou chybějící hodnoty nahrazeny nulami.
+Data ukazují jasnou sezónnost, konstantně vypadající trend.
+
+---
+
+## 2. Dekompozice a idenfikace trendu pomocí vyhlazení řady
+
+### Klouzavé průměry
+
+``` {r moving-average, echo = FALSE}
+maverages <- data.frame(dates = data$datum, x = data$navstevnost)
+
+maverages$r7 <- rollmean(ts_navs_full, k = 7, fill = NA)
+maverages$r14 <- rollmean(ts_navs_full, k = 14, fill = NA)
+maverages$r30 <- rollmean(ts_navs_full, k = 30, fill = NA)
+
+#TODO: Rozdělit na vlastní grafy, udělat trojgraf
+ggplot(data = maverages, aes(x = dates)) +
+  geom_line(aes(y = x), alpha = 0.5) +
+  geom_line(aes(y = r7), color = "red", show.legend = TRUE) +
+  labs(title = "Klouzavý průměr", y = "Návštěvnost")
+
+ggplot(data = maverages, aes(x = dates)) +
+  geom_line(aes(y = x), alpha = 0.5) +
+  geom_line(aes(y = r14), color = "blue", show.legend = TRUE) +
+  labs(title = "Klouzavý průměr", y = "Návštěvnost")
+
+ggplot(data = maverages, aes(x = dates)) +
+  geom_line(aes(y = x), alpha = 0.5) +
+  geom_line(aes(y = r30), color = "yellow", show.legend = TRUE) +
+  labs(title = "Klouzavý průměr", y = "Návštěvnost")
+
+```
+
+Sedmidenní klouzavý průměr neposkytuje dostatečné vyhlazení, zatímco třicetidenní poskytuje moc agresivní vyhlazení. Čtrnáctidenní vyhlazení vypadá jako optimum.
+Nulové hodnoty trochu skreslují výsledek. V datech lze vidět sezónnost na úrovni roku. 
+
+
+### Exponenciální vyrovnání
+
+``` {r exponenial-smoothing, echo = FALSE}
+expo_smooth_EMA <- EMA(ts_navs_zero, n=30)
+
+expo_smooth_HW <- HoltWinters(ts_navs_zero)
+summary(expo_smooth_HW)
+expo_smooth_HW$alpha
+expo_smooth_HW$beta
+expo_smooth_HW$gamma
+
+par(mfrow = c(2, 1))
+plot(expo_smooth_EMA, type = "l")
+plot(expo_smooth_HW$fitted[, "xhat"])
+par(mfrow = c(1, 1))
+
+```
+
+Exponenciální vyrovnání  pomocí funkce EMA je celkem kolísavé.
+Parametry Holt-Wintersovy metody jsou:
+- alfa: 0.3635206
+- beta: 0
+- gamma: 1
+
+Toto nám říká, že podle Holt-Wintersovy metody je trend konstatní, a řada obsahuje sezónnost. Nulová beta značí konstantní trend, a gamma na hodnotě 1 značí silnou sezónnost.
+
+## 3. Optimální modely pro řadu
+
+### Funkční zápis
+```{r functional-trend, echo = FALSE}
+cas <- 1:length(data_zeroed$navstevnost)
+
+linear <- lm(data_zeroed$navstevnost ~ cas)
+quadratic <- lm(data_zeroed$navstevnost ~ cas + I(cas^2))
+cubic <- lm(data_zeroed$navstevnost ~ cas + I(cas^2) + I(cas^3))
+tetral <- lm(data_zeroed$navstevnost ~ cas + I(cas^2) + I(cas^3) + I(cas^4))
+quintal <- lm(data_zeroed$navstevnost ~ cas + I(cas^2) + I(cas^3) + I(cas^4) + I(cas^5))
+
+summary(quintal)$r.squared
+summary(linear)$r.squared
+
+plot(ts(data_zeroed$navstevnost))
+
+lines(cas, fitted(linear), col = 2)
+lines(cas, fitted(quadratic), col = 3)
+lines(cas, fitted(cubic), col = 4)
+lines(cas, fitted(tetral), col = 5)
+lines(cas, fitted(quintal), col = 6)
+
+BIC(linear)
+BIC(quadratic)
+BIC(cubic)
+BIC(tetral)
+BIC(quintal)
+```
+
+Nejlépe vypadající trend je u polynomu stupně 5, nicméně kritérium r^2 napovídá, že tato křivka nevysvětluje velkou část residuí.
+Je možné že vyšší polynomiální stupeň bude křivku vystihovat ještě lépe, nicméně nárust v přesnosti bude logaritmický. Stupeň 5 postačí.
+Pozoruhodné ještě je, že kritéria BIC lineární model je lepší než kvadratický a kubický.
+
+### Loess model
+
+``` {r loess-model, echo = FALSE}
+loess <- stl(ts_navs_zero, s.window = "periodic")
+summary(loess)
+autoplot(loess)
+```
+
+Loess potvrzuje sezónnost, ale narozdíl od Holt-Wintersovy metody promítá kladný, nekonstantní trend.
+
+## 4. Sarima model
+
+``` {r sarima, echo = FALSE}
+sarima_AIC <- auto.arima(ts_navs_full, seasonal = TRUE)
+sarima_BIC <- auto.arima(ts_navs_full, seasonal = TRUE, ic = "bic")
+
+summary(sarima_AIC)
+summary(sarima_BIC)
+
+par(mfrow = c(2, 1))
+plot(sarima_AIC$fitted)
+plot(sarima_BIC$fitted)
+par(mfrow = c(1, 1))
+
+```
+
+Volba podle AIC i BIC nám automaticky zvolí SARIMA model (1,0,0)(0,1,0)[365].
+Toto znamená následující:
+- Hodnota autoregrese je 1, což znamená že se využívá pouze hodnota předchozího kroku.
+- Řada není diferencována, tudíž již je stacionární.
+- Řadu je nutno sezónně diferencovat, tudíž máme další důkaz sezónnosti.
+
+SARIMA je vhodná, poněvadž:
+- V datech je vidět jasná sezónnost
+- Je vidět jasný trend
+
+## 5. ** Závislosti na jiných řadách, dynamické modely **
+
+``` {r ccf, echo = FALSE}
+ccf(data_zeroed$navstevnost, data_zeroed$trzba)
+```
+
+Vzhledem k tomu že kroskorelační funkce nabývá hodnoty 1 v lagu 0, znamená že mezi návštěvností a tržbou bude nějaká korelace. Selský rozum by nám asi napověděl, že by tam mohla být pozitivní lineární závislost.
+
+``` {r dynamic-lm, echo = FALSE}
+dyn_lm <- dynlm(ts_navs_zero ~ trend(ts_trzb_zero) + season(ts_trzb_zero))
+acf(dyn_lm$residuals)
+plot(dyn_lm$fitted)
+
+dyn_lm1 <- dynlm(ts_navs_zero ~ trend(ts_trzb_zero) + season(ts_trzb_zero) + L(ts_trzb_zero, 7))
+acf(dyn_lm1$residuals)
+
+dyn_lm2 <- dynlm(ts_navs_zero ~ trend(ts_trzb_zero) + season(ts_trzb_zero) + L(ts_trzb_zero, -1) + L(ts_trzb_zero, -7))
+acf(dyn_lm2$residuals)
+
+
+#dyn_lm3 <- dynlm(ts_navs_zero ~ trend(ts_trzb_zero) + season(ts_trzb_zero) + L(ts_trzb_zero, -1) + L(ts_trzb_zero, -15) + L(ts_trzb_zero, 8) + L(ts_trzb_zero, -5) + L(ts_trzb_zero, -28))
+#acf(dyn_lm3$residuals)
+#plot(dyn_lm3$fitted)
+#plot(dyn_lm$fitted)
+
+```
+
+## 6. **Analýza residuí**
+``` {r i-am-doomed, echo = FALSE}
+acf(residuals(sarima_AIC), na.action = na.pass)
+acf(residuals(expo_smooth_HW), na.action = na.pass)
+acf(residuals(dyn_lm2), na.action = na.pass)
+```
+Residua mírně přesahují akceptovatelný interval, nicméně nevím co s tím udělat, a doufám ve známku 3 a nic lepšího, takže budu doufat že zbytek bude stačit, protože fakt nemám čas to řešit
+
+
+## 7. **Predikce**
+
+``` {r predict, echo = FALSE}
+forecast_sarima <- forecast(sarima_AIC, h = 10)
+forecast_hw <- forecast(expo_smooth_HW, h = 10)
+
+
+autoplot(forecast_sarima)
+autoplot(forecast_hw)
+```
+
+Sarima předpovídá celkem smysluplně. Holt-Winters model vypadá relativně problémově.
+
+## 8. ** Porovnání modelů a závěr **
+
+Sarima je jediný model který se reálně povedl, zbytek modelů má silné chyby.
+Vypadá to že se návštevnost bude mírně zvedat během zimy. 
+
+
+
+## 9. Modelace závislosti na jiné řadě (návštěvnost × tržba)
+
+Na základě předchozí analýzy křížové korelace (funkce CCF) je patrné, že
+nejvyšší hodnota korelace je v ladu 0. To znamená, že mezi denní
+návštěvností a tržbou existuje **silná současná závislost** – tržba reaguje
+okamžitě na počet návštěvníků. Tento výsledek odpovídá logickému očekávání,
+protože výše tržby přímo souvisí s počtem prodaných vstupenek.
+
+Pro ověření lze použít **regresní model s exogenní proměnnou**, tedy model
+typu ARIMAX, kde je vysvětlovanou proměnnou tržba a vysvětlující proměnnou
+návštěvnost. Tím se testuje, zda návštěvnost zlepšuje predikci tržby oproti
+modelu, který využívá pouze autoregresní strukturu.
+
+
+```{r}
+# ARIMAX model
+arimax_model <- auto.arima(ts(data_zeroed$trzba),
+                           xreg = data_zeroed$navstevnost,
+                           seasonal = TRUE)
+summary(arimax_model)
+checkresiduals(arimax_model)
+
+lm_trzba <- lm(trzba ~ navstevnost, data = data_zeroed)
+summary(lm_trzba)
+```
+Na základě výsledků křížové korelace mezi návštěvností a tržbou byla potvrzena silná pozitivní lineární závislost obou časových řad. Maximální hodnota korelace se nachází při zpoždění 0, což znamená, že změny v počtu návštěvníků se okamžitě promítají do výše tržby.
+
+Pro přesnější modelaci byl použit model ARIMAX, který kombinuje autoregresní část (ARIMA) s exogenní proměnnou – návštěvností. Tento přístup umožňuje zachytit nejen sezónní strukturu tržeb, ale i jejich přímou závislost na počtu návštěvníků.
+Hodnota R² = 0.9812 ukazuje, že model vysvětluje více než 98 % variability tržeb.
+
+Koeficient u proměnné návštěvnost (84.1) znamená, že každý další návštěvník přinese průměrně přibližně 84 Kč tržby.
+
+Ljung–Box test (Q = 60.3, p < 0.001) ukazuje, že v reziduích zůstává ještě mírná autokorelace, ale v rámci praxe je model považovatelný za dostatečně kvalitní.
