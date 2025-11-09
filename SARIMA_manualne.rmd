@@ -1,0 +1,105 @@
+---
+title: 'ARIMA manuálně'
+subtitle: 'Návštevnost plavecké haly ____'
+author: 'Eliška Junková, Matěj Sloup'
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+``` {r libraries} 
+library(TSA)
+library(forecast)
+library(tidyverse)
+library(tseries)
+```
+
+První, potřebujeme načíst data:
+
+``` {r data-read}
+data <- read_csv("zaznamy.csv")
+
+data <- data %>%
+  mutate(
+    datum = as.Date(datum),
+    navstevnost = as.numeric(`návštěvnost`),
+    trzba = as.numeric(`tržba`)
+    #trzba = as.numeric(gsub("\\s", "", `tržba`))
+  )
+
+data_zeroed <- data
+data_zeroed$navstevnost[is.na(data_zeroed$navstevnost)] <- 0
+data_zeroed$trzba[is.na(data_zeroed$trzba)] <- 0
+
+SEASON_LEN = 7
+ts_navs_full <- ts(data$navstevnost, frequency = SEASON_LEN, start = c(2023, 1))
+ts_navs_zero <- ts(data_zeroed$navstevnost, frequency = SEASON_LEN, start = c(2023, 1))
+
+ts_trzb_full <- ts(data$trzba, frequency = SEASON_LEN, start = c(2023, 1))
+ts_trzb_zero <- ts(data_zeroed$trzba, frequency = SEASON_LEN, start = c(2023, 1))
+
+```
+
+Následně, analýza stacionarity:
+``` {r stationary-init}
+adf.test(ts_navs_zero)
+```
+
+Pomocí augumentovaného Dickey-Fullerova testu můžeme odmítnout nulovou hypotézu, tudíž řada je stacionární.
+Následuje náhled do autokorelogramu a parciálního autokorelogramu:
+
+``` {r autocorel-init}
+par(mfrow = c(2,1))
+acf(ts_navs_full, na.action = na.pass); pacf(ts_navs_full, na.action = na.pass)
+
+data_adj <- diff(ts_navs_full, lag = 7)
+
+acf(data_adj, na.action = na.pass); pacf(data_adj, na.action = na.pass)
+
+par(mfrow = c(1,1))
+```
+
+Iniciální autokorelogram silně naznačuje sezónní trend délky periody 7 (dní) (graf ukazuje hodnotu 1, poněvadž naše časová řada už má takto nastavenou délku periody). Zkusme toto promítnout do autokorelogramu:
+
+``` {r autocorel-correct}
+par(mfrow = c(2, 1))
+data_adj <- diff(ts_navs_full, lag = 7)
+
+acf(data_adj, na.action = na.pass); pacf(data_adj, na.action = na.pass)
+
+par(mfrow = c(1, 1))
+```
+
+Autokorelogram ukazuje významné hodnoty na řádech 1, 2, 3, 6, 7 a 8, zatímco parciální autokorelogram ukazuje významné hodnoty na řádech 1, 6, 7, 8, 15 a 22. Tyto hodnoty nám poukazují na potenciální kandidáty na SARIMA model.
+
+
+``` {r model-test}
+fit1 <- Arima(ts_navs_full, order = c(1, 0, 0), seasonal = list(order = c(0, 1, 1)))
+fit2 <- Arima(ts_navs_full, order = c(0, 0, 1), seasonal = list(order = c(0, 1, 1)))
+fit3 <- Arima(ts_navs_full, order = c(1, 0, 1), seasonal = list(order = c(0, 1, 1)))
+fit4 <- Arima(ts_navs_full, order = c(3, 0, 0), seasonal = list(order = c(0, 1, 1)))
+fit5 <- Arima(ts_navs_full, order = c(2, 0, 6), seasonal = list(order = c(0, 1, 1)))
+fit6 <- Arima(ts_navs_full, order = c(7, 0, 6), seasonal = list(order = c(0, 1, 1)))
+
+AIC(fit1)
+AIC(fit2)
+AIC(fit3)
+AIC(fit4)
+AIC(fit5)
+AIC(fit6)
+
+BIC(fit1)
+BIC(fit2)
+BIC(fit3)
+BIC(fit4)
+BIC(fit5)
+BIC(fit6)
+```
+
+Z hlediska skóre AIC je nejlepší model (7,0,6)(0,1,1)[7].
+Z hlediska skóre BIC je nejlepší model (1,0,1)(0,1,1)[7].
+
+``` {r automatic}
+auto.arima(ts_navs_full, seasonal = TRUE)
+```
+
+Model zjištěný automaticky je asi horší, vypadá to...
