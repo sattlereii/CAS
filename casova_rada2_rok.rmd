@@ -226,19 +226,21 @@ ccf(data_zeroed$navstevnost, data_zeroed$trzba)
 Vzhledem k tomu že kroskorelační funkce nabývá hodnoty 1 v lagu 0, znamená že mezi návštěvností a tržbou bude nějaká korelace. Selský rozum by nám asi napověděl, že by tam mohla být pozitivní lineární závislost.
 
 ``` {r dynamic-lm, echo = FALSE}
-dyn_lm <- dynlm(ts_navs_zero ~ trend(ts_navs_zero) + season(ts_navs_zero))
+dyn_lm <- dynlm(ts_navs_zero ~ trend(ts_trzb_zero) + season(ts_trzb_zero))
 acf(dyn_lm$residuals)
+plot(dyn_lm$fitted)
 
-dyn_lm1 <- dynlm(ts_navs_zero ~ trend(ts_navs_zero) + season(ts_navs_zero) + L(ts_navs_zero, -1))
+dyn_lm1 <- dynlm(ts_navs_zero ~ trend(ts_trzb_zero) + season(ts_trzb_zero) + L(ts_trzb_zero, -1))
 acf(dyn_lm1$residuals)
 
-dyn_lm2 <- dynlm(ts_navs_zero ~ trend(ts_navs_zero) + season(ts_navs_zero) + L(ts_navs_zero, -1) + L(ts_navs_zero, -15))
+dyn_lm2 <- dynlm(ts_navs_zero ~ trend(ts_trzb_zero) + season(ts_trzb_zero) + L(ts_trzb_zero, -1) + L(ts_trzb_zero, -15))
 acf(dyn_lm2$residuals)
 
 
-dyn_lm3 <- dynlm(ts_navs_zero ~ trend(ts_navs_zero) + season(ts_navs_zero) + L(ts_navs_zero, -1) + L(ts_navs_zero, -15) + L(ts_navs_zero, 8) + L(ts_navs_zero, -5) + L(ts_navs_zero, -28))
+dyn_lm3 <- dynlm(ts_navs_zero ~ trend(ts_trzb_zero) + season(ts_trzb_zero) + L(ts_trzb_zero, -1) + L(ts_trzb_zero, -15) + L(ts_trzb_zero, 8) + L(ts_trzb_zero, -5) + L(ts_trzb_zero, -28))
 acf(dyn_lm3$residuals)
 plot(dyn_lm3$fitted)
+plot(dyn_lm$fitted)
 
 ```
 
