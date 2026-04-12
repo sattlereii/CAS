@@ -1,0 +1,54 @@
+Datum: [Doplňte dnešní datum, např. 12. 4. 2026]
+Téma činnosti: Zpracování, čištění a agregace primárních dat o návštěvnosti (z exportu chatu WhatsApp)
+
+Popis postupu a dosažené výsledky:
+
+1. Sběr a import dat:
+
+Jako zdroj primárních dat o návštěvnosti sloužil textový export komunikační skupiny z aplikace WhatsApp (Chat WhatsApp s uživatelem BaK-recepční.txt).
+
+Data obsahovala hlášení návštěvnosti z jednotlivých středisek (Brná, Klíše, Městské lázně) zasílaná recepčními na denní bázi v různých formátech a časech.
+
+2. Prvotní filtrace a čištění dat (Data Cleaning):
+
+Vytvořila jsem (za pomoci AI/Python skriptů) algoritmus pro extrakci relevantních zpráv.
+
+Stanovené podmínky pro zařazení do datové sady:
+
+Zpráva musela obsahovat číselné hodnoty.
+
+Zpráva musela obsahovat klíčová slova týkající se středisek nebo služeb (např. bazén, sauna, fitness, solárium, letní koupaliště, ML, Brná, Klíše).
+
+Byla odstraněna konverzační "hlušina" (běžná komunikace, pozdravy typu "dobrý den", "zítra", systémová hlášení o přidání/odebrání členů a "Média vynechány").
+
+Identifikace mezer v datech: Kontrolou časové řady (od 26. 6. 2024 do 11. 4. 2026) bylo zjištěno, že z očekávaných 655 dnů chybí pouze dny, kdy byla střediska pravděpodobně uzavřena (Štědrý den a Silvestr 2024 a 2025). Opožděné reporty (např. odeslané po půlnoci) byly identifikovány a zařazeny.
+
+3. Časová specifikace:
+
+Původní požadavek na časové okno odeslání reportů (19:15–22:00) byl pro získání robustnějšího vzorku rozšířen. Finální analýza a extrakce zohledňuje všechny reporty zaslané v časovém okně 17:00 až 23:59. Tímto krokem bylo získáno 1245 relevantních záznamů.
+
+4. Agregace, transformace a unifikace formátů (Data Wrangling):
+
+Byl vytvořen skript v jazyce Python s využitím knihovny pandas pro převod nejednotného textu do strukturované tabulky (formát CSV).
+
+Metodika těžby čísel (Regulární výrazy): Byly ošetřeny různé stylistické zápisy od recepčních (mezery, pomlčky, dvojtečky) i různé názvy pro stejnou věc (např. letní koupaliště = LK, letní, koupaliště).
+
+Pravidlo pro Solárium: Byla definována výjimka a pravidlo, že jakákoliv hodnota přiřazená k pojmu "solárium" automaticky spadá pod středisko Klíše, aby nedocházelo ke zkreslení či přesunu dat jinam.
+
+5. Finální výstup pro analýzu:
+
+Data z vícero zpráv v jednom dni (např. zvlášť hlášená Brná a zvlášť Klíše) byla sloučena.
+
+Vznikla konečná strukturovaná tabulka o 646 řádcích (jeden den = jeden agregovaný řádek), obsahující sloupce pro jednotlivé služby (Brná, Klíše_Bazén, Klíše_Sauna, Klíše_Fitness, Klíše_Solárium, Klíše_Letní, ML_Bazén, ML_Sauna, Po_21h).
+
+Hodnota v buňkách představuje maximální nahlášený stav v daném dni, u proměnné "zákazníci po 21. hodině" jde o součet ze všech provozů.
+
+Výsledek: Export do souboru navstevnost_FINALNI_DATA.csv (s kódováním utf-8-sig pro kompatibilitu s MS Excel). Data jsou nyní připravena na deskriptivní statistiku a tvorbu grafů pro bakalářskou práci.
+
+Další kroky / Plán:
+
+Importovat CSV do Excelu/SPSS.
+
+Zkontrolovat odlehlé hodnoty (outliers).
+
+Začít s tvorbou grafů a popisnou statistikou (průměry, výkyvy v sezoně atd.).
